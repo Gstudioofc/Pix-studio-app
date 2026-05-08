@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<!-- Playables SDK -->
+<script>// Playables SDK v1.0.0
+// Game lifecycle bridge: rAF-based game-ready detection + event communication
+(function() {
+  'use strict';
+
+  // Idempotency: skip if already initialized (e.g., server-side injection
+  // followed by client-side inject-javascript via the Bloks webview component).
+  if (window.playablesSDK) return;
+
+  var HANDLER_NAME = 'playablesGameEventHandler';
+  var ANDROID_BRIDGE_NAME = '_MetaPlayablesBridge';
+  var RAF_FRAME_THRESHOLD = 3;
+
+  var gameReadySent = false;
+  var firstInteractionSent = false;
+  var errorSent = false;
+  var frameCount = 0;
+  var originalRAF = window.requestAnimationFrame;
+
+  // --- Transport Layer ---
+
+  function hasIOSBridge() {
+    return !!(window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers[HANDLER_NAME]);
+  }
+
+  function hasAndroidBridge() {
+    return !!(window[ANDROID_BRIDGE_NAME] &&
+              typeof window[ANDROID_BRIDGE_NAME].postEvent === 'function');
+  }
+
+  function isInIframe() {
+    return !!(window.parent && window.parent !== window);
+  }
+
+  function sendEvent(eventName, payload) {
+    var message = {
+      type: eventName,
+      payload: payload || {},
+      timestamp: Date.now()
+    };
+
+    if (hasIOSBridge()) {
+      try {
+        window.webkit.messageHandlers[HANDLER_NAME].postMessage(message);
+      } catch (e) { /* ignore */ }
+      return;
+    }
+
+    if (hasAndroidBridge()) {
+    try {
+      var p = payload || {};
+      p.__secureToken = window.__fbAndroidBridgeAuthToken || '';
+      p.timestamp = message.timestamp;
+      window[ANDROID_BRIDGE_NAME].postEvent(
+        eventName,
+        JSON.stringify(p)
+      );
+    } catch (e) { /* ignore */ }
+    return;
+  }
+
+    if (isInIframe()) {
+      try {
+        window.parent.postMessage(message, '*');
+      } catch (e) { /* ignore */ }
+      return;
+    }
+  }
+
+  // --- rAF Game-Ready Detection ---
+
+  function onFrame() {
+    if (gameReadySent) return;
+
+    frameCount++;
+    if (frameCount >= RAF_FRAME_THRESHOLD) {
+      gameReadySent = true;
+      sendEvent('game_ready', {
+        frame_count: frameCount,
+        detected_at: Date.now()
+      });
+      return;
+    }
+
+    originalRAF.call(window, onFrame);
+  }
+
+  if (originalRAF) {
+    window.requestAnimationFrame = function(callback) {
+      if (!gameReadySent) {
+        return originalRAF.call(window, function(timestamp) {
+          frameCount++;
+          if (frameCount >= RAF_FRAME_THRESHOLD && !gameReadySent) {
+            gameReadySent = true;
+            sendEvent('game_ready', {
+              frame_count: frameCount,
+              detected_at: Date.now()
+            });
+          }
+          callback(timestamp);
+        });
+      }
+      return originalRAF.call(window, callback);
+    };
+  }
+
+  // --- First User Interaction Detection ---
+
+  function setupFirstInteractionDetection() {
+    var events = ['touchstart', 'mousedown', 'keydown'];
+
+    function onFirstInteraction() {
+      if (firstInteractionSent) return;
+      firstInteractionSent = true;
+      sendEvent('user_interaction_start', null);
+
+      for (var i = 0; i < events.length; i++) {
+        document.removeEventListener(events[i], onFirstInteraction, true);
+      }
+    }
+
+    for (var i = 0; i < events.length; i++) {
+      document.addEventListener(events[i], onFirstInteraction, true);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupFirstInteractionDetection);
+  } else {
+    setupFirstInteractionDetection();
+  }
+
+  // --- Auto Error Capture ---
+
+  window.addEventListener('error', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    sendEvent('error', {
+      message: event.message || 'Unknown error',
+      source: event.filename || '',
+      lineno: event.lineno || 0,
+      colno: event.colno || 0,
+      auto_captured: true
+    });
+  });
+
+  window.addEventListener('unhandledrejection', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    var reason = event.reason;
+    sendEvent('error', {
+      message: (reason instanceof Error) ? reason.message : String(reason),
+      type: 'unhandled_promise_rejection',
+      auto_captured: true
+    });
+  });
+
+  // --- Public API ---
+
+  window.playablesSDK = {
+    complete: function(score) {
+      sendEvent('game_ended', {
+        score: score,
+        completed: true
+      });
+    },
+
+    error: function(message) {
+      if (errorSent) return;
+      errorSent = true;
+      sendEvent('error', {
+        message: message || 'Unknown error',
+        auto_captured: false
+      });
+    },
+
+    sendEvent: function(eventName, payload) {
+      if (!eventName || typeof eventName !== 'string') return;
+      sendEvent(eventName, payload);
+    }
+  };
+
+  // Kick off rAF detection in case no game code calls rAF immediately
+  if (originalRAF) {
+    originalRAF.call(window, onFrame);
+  }
+})();</script>
+<script>window.Intl=window.Intl||{};Intl.t=function(s){return(Intl._locale&&Intl._locale[s])||s;};</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GStudio App — Plano Plus</title>
+<meta name="theme-color" content="#7c3aed">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="manifest" href='data:application/manifest+json,%7B%22name%22%3A%22GStudio%20App%20-%20Plano%20Plus%22%2C%22short_name%22%3A%22GStudio%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230b0a1f%22%2C%22theme_color%22%3A%22%237c3aed%22%2C%22description%22%3A%22Assine%20o%20Plano%20Plus%20via%20Pix%22%7D'>
+
+<style>
+:root{
+  --bg:#0b0a14;
+  --card:rgba(255,255,255,.08);
+  --border:rgba(255,255,255,.12);
+  --text:#e2e8f0;
+  --muted:#a5b4fc;
+  --accent:#7c3aed;
+  --accent2:#3b82f6;
+  --ok:#22c55e;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+  color:var(--text);
+  background:var(--bg);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+.bg{
+  position:fixed; inset:0; z-index:-2;
+  background:
+    radial-gradient(1200px 800px at 85% -10%, rgba(124,58,237,.35), transparent 60%),
+    radial-gradient(900px 600px at -10% 15%, rgba(59,130,246,.28), transparent 55%),
+    linear-gradient(180deg,#0f0a1f 0%, #0a1226 50%, #071426 100%);
+}
+.bg::after{
+  content:""; position:absolute; inset:0; z-index:-1;
+  background: radial-gradient(600px 400px at 50% 120%, rgba(124,58,237,.18), transparent 60%);
+  animation: float 18s ease-in-out infinite alternate;
+}
+@keyframes float{
+  0%{transform:translateY(0)}
+  100%{transform:translateY(-20px)}
+}
+.container{max-width:720px; margin:0 auto; padding:24px 16px 88px}
+header{
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:22px;
+}
+.logo{display:flex; align-items:center; gap:12px}
+.logo-mark{
+  width:42px; height:42px; border-radius:14px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:grid; place-items:center; font-weight:800; color:white;
+  box-shadow:0 10px 30px rgba(124,58,237,.45), inset 0 1px 0 rgba(255,255,255,.2);
+  transform:translateZ(0);
+}
+.logo-text{font-weight:800; letter-spacing:.3px; font-size:20px}
+.tag{
+  padding:7px 12px; border-radius:999px; font-size:12px; font-weight:700;
+  color:#ddd6fe; background:rgba(124,58,237,.14); border:1px solid rgba(124,58,237,.35);
+  backdrop-filter: blur(8px);
+}
+.card{
+  position:relative;
+  background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+  border:1px solid var(--border);
+  border-radius:28px;
+  padding:24px;
+  backdrop-filter:blur(20px) saturate(140%);
+  -webkit-backdrop-filter:blur(20px) saturate(140%);
+  box-shadow:0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+  margin-bottom:18px;
+  overflow:hidden;
+}
+.card::before{
+  content:""; position:absolute; inset:-1px;
+  background:linear-gradient(120deg, transparent 20%, rgba(255,255,255,.08), transparent 60%);
+  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  padding:1px; border-radius:28px;
+  pointer-events:none;
+}
+.hero h1{margin:4px 0 6px; font-size:30px; letter-spacing:.2px}
+.hero p.sub{margin:0 0 18px; color:var(--muted)}
+.price-wrap{display:flex; align-items:baseline; gap:10px; margin:12px 0 22px}
+.price-prefix{font-size:22px; color:#cbd5e1; font-weight:600}
+.price-input{
+  background:transparent; border:none; outline:none;
+  font-size:48px; font-weight:800; color:white; width:150px;
+  letter-spacing:.5px;
+}
+.price-suffix{color:#94a3b8; font-weight:600}
+.benefits{list-style:none; padding:0; margin:0 0 22px; display:grid; gap:10px}
+.benefits li{
+  display:flex; align-items:center; gap:12px;
+  padding:12px 14px; border-radius:14px;
+  background:rgba(0,0,0,.28); border:1px solid rgba(255,255,255,.08);
+}
+.check{
+  width:26px; height:26px; border-radius:9px; flex:0 0 26px;
+  background:linear-gradient(135deg,var(--ok),#16a34a);
+  display:grid; place-items:center; color:white; font-weight:900;
+  box-shadow:0 6px 16px rgba(34,197,94,.35);
+}
+.benefits strong{display:block; font-size:14px}
+.benefits small{display:block; color:#9ca3af; font-size:12px; margin-top:2px}
+
+.btn-primary{
+  width:100%; padding:16px 18px; border:none; border-radius:16px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:white; font-weight:800; font-size:16px; cursor:pointer;
+  box-shadow:0 14px 32px rgba(124,58,237,.42);
+  transition:transform .12s ease, filter .15s ease;
+}
+.btn-primary:active{transform:translateY(1px) scale(.99)}
+.btn-primary:hover{filter:brightness(1.05)}
+
+.btn-secondary{
+  padding:11px 14px; border-radius:12px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14);
+  color:#e2e8f0; font-weight:700; cursor:pointer;
+  transition:background .15s;
+}
+.btn-secondary:hover{background:rgba(255,255,255,.12)}
+.btn-secondary:active{transform:scale(.98)}
+
+.payment.hidden{display:none}
+.payment.show{display:block; animation:in .35s ease}
+@keyframes in{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none}}
+
+.field{margin-bottom:13px}
+.field label{display:block; font-size:12.5px; color:#c7d2fe; margin:0 0 6px 2px; font-weight:600; letter-spacing:.2px}
+.field input{
+  width:100%; padding:14px 14px; border-radius:14px;
+  background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.12);
+  color:white; font-size:15px; outline:none;
+  transition:border .15s, box-shadow .15s;
+}
+.field input:focus{border-color:#7c3aed; box-shadow:0 0 0 4px rgba(124,58,237,.22)}
+.grid-2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+
+.result{margin-top:18px; padding:18px; background:rgba(0,0,0,.32); border:1px solid rgba(255,255,255,.08); border-radius:20px}
+.qr-wrap{
+  display:grid; place-items:center; padding:14px; background:white; border-radius:16px; margin-bottom:14px;
+  box-shadow:0 10px 30px rgba(0,0,0,.35) inset;
+}
+#qrCanvas{width:220px; height:220px; display:block}
+.copy-box{display:flex; gap:8px; align-items:flex-start}
+.copy-box textarea{
+  flex:1; height:108px; resize:none; padding:12px; border-radius:12px;
+  background:#0a0f1d; border:1px solid rgba(255,255,255,.12); color:#cbd5e1;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; line-height:1.4;
+}
+.instructions{
+  margin-top:12px; padding:12px 13px; border-radius:12px;
+  background:rgba(124,58,237,.12); border:1px dashed rgba(167,139,250,.5);
+  color:#e9d5ff; font-size:13px;
+}
+.instructions strong{color:white}
+
+.guide h2{margin:0 0 10px; font-size:20px}
+.guide ol{margin:0; padding-left:18px; display:grid; gap:8px; color:#cbd5e1; font-size:14px}
+.guide code{background:rgba(0,0,0,.45); padding:2px 6px; border-radius:6px; font-family:ui-monospace,monospace; font-size:12.5px}
+.guide p{color:#a5b4fc; font-size:13px; margin-top:10px}
+
+footer{text-align:center; margin-top:28px; color:#64748b; font-size:12.5px}
+
+@media (max-width:520px){
+  .price-input{font-size:42px; width:130px}
+  .grid-2{grid-template-columns:1fr}
+  .card{padding:20px; border-radius:24px}
+}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="container">
+  <header>
+    <div class="logo">
+      <div class="logo-mark">G</div>
+      <div class="logo-text">GStudio</div>
+    </div>
+    <div class="tag">Plano Plus</div>
+  </header>
+
+  <main>
+    <section class="card hero">
+      <h1>Desbloqueie o Plus</h1>
+      <p class="sub">Tudo que você precisa, sem limites.</p>
+
+      <div class="price-wrap">
+        <span class="price-prefix">R$</span>
+        <input id="priceInput" class="price-input" inputmode="decimal" value="19,90" aria-label="Valor mensal">
+        <span class="price-suffix">/mês</span>
+      </div>
+
+      <ul class="benefits">
+        <li><div class="check">✓</div><div><strong>Acesso premium</strong><small>Recursos completos liberados</small></div></li>
+        <li><div class="check">✓</div><div><strong>Atualizações</strong><small>Novidades primeiro para Plus</small></div></li>
+        <li><div class="check">✓</div><div><strong>Suporte prioritário</strong><small>Atendimento rápido</small></div></li>
+        <li><div class="check">✓</div><div><strong>Sem anúncios</strong><small>Experiência limpa</small></div></li>
+      </ul>
+
+      <button id="btnAssinar" class="btn-primary">Assinar com Pix</button>
+    </section>
+
+    <section id="payment" class="card payment hidden">
+      <h2 style="margin:0 0 14px">Pagamento via Pix</h2>
+      <p style="margin:0 0 16px; color:#c7d2fe; font-size:14px">Preencha seus dados do recebedor (salvos no aparelho) e gere seu QR Code.</p>
+
+      <div class="field">
+        <label for="chave">Chave Pix do recebedor</label>
+        <input id="chave" placeholder="sua chave Pix (CNPJ, email ou aleatória)" autocomplete="off">
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="nome">Nome do recebedor</label>
+          <input id="nome" placeholder="GSTUDIO APP" maxlength="25">
+        </div>
+        <div class="field">
+          <label for="cidade">Cidade</label>
+          <input id="cidade" placeholder="SAO PAULO" maxlength="15">
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="valor">Valor (R$)</label>
+          <input id="valor" inputmode="decimal" value="19.90">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="btnGerar" class="btn-primary" style="width:100%">Gerar QR Pix</button>
+        </div>
+      </div>
+
+      <div id="result" class="result hidden">
+        <div class="qr-wrap">
+          <canvas id="qrCanvas" width="240" height="240"></canvas>
+        </div>
+        <div class="field" style="margin-bottom:8px">
+          <label>Pix Copia e Cola</label>
+          <div class="copy-box">
+            <textarea id="pixPayload" readonly></textarea>
+            <button id="copyBtn" class="btn-secondary">Copiar</button>
+          </div>
+        </div>
+        <div class="instructions">
+          <strong>Após pagar:</strong> envie o comprovante para <strong>gstudioapp900@gmail.com</strong> com seu e-mail de cadastro.
+        </div>
+      </div>
+    </section>
+
+    <section class="card guide">
+      <h2>Configuração para GitHub → web2app</h2>
+      <ol>
+        <li>Salve esta página como <code>index.html</code></li>
+        <li>Crie um repositório no GitHub e envie o arquivo</li>
+        <li>Ative <strong>Settings → Pages → Deploy from a branch</strong> (branch main / root)</li>
+        <li>Acesse a URL do GitHub Pages no celular e toque em <strong>Adicionar à Tela de Início</strong></li>
+        <li>Para gerar APK: use PWABuilder ou web2apk apontando para sua URL</li>
+      </ol>
+      <p>Manifest e Service Worker já inclusos — funciona offline após o primeiro acesso.</p>
+    </section>
+  </main>
+
+  <footer>Feito para gstudioapp900@gmail.com</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const priceInput = $('#priceInput');
+const btnAssinar = $('#btnAssinar');
+const payment = $('#payment');
+const chave = $('#chave');
+const nome = $('#nome');
+const cidade = $('#cidade');
+const valor = $('#valor');
+const btnGerar = $('#btnGerar');
+const result = $('#result');
+const pixPayload = $('#pixPayload');
+const copyBtn = $('#copyBtn');
+const qrCanvas = $('#qrCanvas');
+
+// Load saved
+const load = () => {
+  chave.value = localStorage.getItem('gstudio_pix_chave') || '';
+  nome.value = localStorage.getItem('gstudio_pix_nome') || 'GSTUDIO APP';
+  cidade.value = localStorage.getItem('gstudio_pix_cidade') || 'SAO PAULO';
+  const v = localStorage.getItem('gstudio_valor') || '19.90';
+  valor.value = v;
+  priceInput.value = parseFloat(v).toFixed(2).replace('.', ',');
+};
+load();
+
+btnAssinar.addEventListener('click', () => {
+  payment.classList.remove('hidden');
+  payment.classList.add('show');
+  setTimeout(()=> payment.scrollIntoView({behavior:'smooth', block:'start'}), 50);
+});
+
+// Sync price
+const syncPrice = () => {
+  const raw = priceInput.value.replace(/\s/g,'').replace(',', '.');
+  let n = parseFloat(raw);
+  if(isNaN(n) || n < 0) n = 19.9;
+  priceInput.value = n.toFixed(2).replace('.', ',');
+  valor.value = n.toFixed(2);
+  localStorage.setItem('gstudio_valor', valor.value);
+};
+priceInput.addEventListener('blur', syncPrice);
+priceInput.addEventListener('change', syncPrice);
+valor.addEventListener('change', ()=>{
+  let n = parseFloat(valor.value.replace(',', '.')) || 19.9;
+  valor.value = n.toFixed(2);
+  priceInput.value = n.toFixed(2).replace('.', ',');
+  localStorage.setItem('gstudio_valor', valor.value);
+});
+
+// PIX EMV
+function formatEMV(id, value){
+  const len = value.length.toString().padStart(2,'0');
+  return id + len + value;
+}
+function crc16(str){
+  let crc = 0xFFFF;
+  for(let i=0; i<str.length; i++){
+    crc ^= str.charCodeAt(i) << 8;
+    for(let j=0; j<8; j++){
+      if((crc & 0x8000) !== 0){ crc = ((crc << 1) ^ 0x1021) & 0xFFFF; }
+      else { crc = (crc << 1) & 0xFFFF; }
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4,'0');
+}
+function generatePix(chavePix, nomeRec, cidadeRec, valorNum){
+  const gui = formatEMV('00','BR.GOV.BCB.PIX');
+  const key = formatEMV('01', chavePix);
+  const merchant = formatEMV('26', gui + key);
+  const amount = valorNum > 0 ? formatEMV('54', valorNum.toFixed(2)) : '';
+  const nomeFmt = nomeRec.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().substring(0,25);
+  const cidFmt = cidadeRec.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().substring(0,15);
+  const payloadBase = 
+    formatEMV('00','01') +
+    merchant +
+    formatEMV('52','0000') +
+    formatEMV('53','986') +
+    amount +
+    formatEMV('58','BR') +
+    formatEMV('59', nomeFmt) +
+    formatEMV('60', cidFmt) +
+    formatEMV('62', formatEMV('05','GPLUS')) +
+    '6304';
+  const crc = crc16(payloadBase);
+  return payloadBase + crc;
+}
+
+btnGerar.addEventListener('click', ()=>{
+  const k = chave.value.trim();
+  const n = (nome.value.trim() || 'GSTUDIO APP');
+  const c = (cidade.value.trim() || 'SAO PAULO');
+  const v = parseFloat(valor.value.replace(',', '.')) || 0;
+
+  if(!k){ alert('Informe sua chave Pix'); chave.focus(); return; }
+  if(k.length < 5){ alert('Chave Pix parece inválida'); return; }
+
+  localStorage.setItem('gstudio_pix_chave', k);
+  localStorage.setItem('gstudio_pix_nome', n);
+  localStorage.setItem('gstudio_pix_cidade', c);
+  localStorage.setItem('gstudio_valor', v.toFixed(2));
+
+  const payload = generatePix(k, n, c, v);
+  pixPayload.value = payload;
+
+  QRCode.toCanvas(qrCanvas, payload, {
+    width: 240,
+    margin: 1,
+    color: { dark: '#000000', light: '#ffffff' },
+    errorCorrectionLevel: 'M'
+  }, err => { if(err) console.error(err); });
+
+  result.classList.remove('hidden');
+  priceInput.value = v.toFixed(2).replace('.', ',');
+});
+
+copyBtn.addEventListener('click', async ()=>{
+  try{
+    await navigator.clipboard.writeText(pixPayload.value);
+    const old = copyBtn.textContent;
+    copyBtn.textContent = 'Copiado!';
+    copyBtn.disabled = true;
+    setTimeout(()=>{ copyBtn.textContent = old; copyBtn.disabled = false; }, 1600);
+  }catch(e){
+    pixPayload.select();
+    document.execCommand('copy');
+  }
+});
+
+// PWA: Service Worker offline
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    const swCode = `
+      const CACHE='gstudio-plus-v3';
+      const ASSETS=['./','https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js'];
+      self.addEventListener('install', e=>{
+        e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
+      });
+      self.addEventListener('activate', e=>{
+        e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))) .then(()=>self.clients.claim()));
+      });
+      self.addEventListener('fetch', e=>{
+        const url = new URL(e.request.url);
+        if(url.origin === location.origin || url.href.includes('qrcode')){
+          e.respondWith(caches.match(e.request).then(r=> r || fetch(e.request).then(res=>{
+            const copy = res.clone(); caches.open(CACHE).then(c=>c.put(e.request, copy)); return res;
+          }).catch(()=>caches.match('./'))));
+        }
+      });
+    `;
+    const blob = new Blob([swCode], {type:'text/javascript'});
+    const swUrl = URL.createObjectURL(blob);
+    navigator.serviceWorker.register(swUrl).catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
